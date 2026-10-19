@@ -1,8 +1,12 @@
 name: Personal build
 
 # Builds the patches of the personal branch, which is the upstream dev branch with features
-# that are not merged yet. The patch bundle is a release, which Morphe Manager can use as a source:
-# https://github.com/glockma98/morphe-patches/releases/latest/download/patches-bundle.json
+# that are not merged yet. The patch bundle is a release, and Morphe Manager uses this source:
+# https://raw.githubusercontent.com/glockma98/morphe-patches/refs/heads/automation/patches-bundle.json
+#
+# Morphe Manager reads the bundle json as text, so it is committed to this branch instead of
+# using the release asset, which GitHub serves as a binary file. A refs/heads url keeps the
+# manager from replacing the branch with its own stable or dev branch.
 
 on:
   # Scheduled workflows only run from the default branch, so this branch must be the default branch.
@@ -94,11 +98,18 @@ jobs:
             --arg version "$VERSION" \
             '{created_at: $created_at, description: $description, download_url: $download_url, signature_download_url: "", version: $version}' \
             > patches-bundle.json
-          gh release create "$TAG" "$mpp" patches-bundle.json \
+          gh release create "$TAG" "$mpp" \
             --target "$(git rev-parse HEAD)" \
             --title "$VERSION" \
             --notes "Upstream dev $(git rev-parse --short upstream/dev) with the features of the $BRANCH branch." \
             --latest
+
+          git fetch origin automation
+          git worktree add ../automation origin/automation
+          cp patches-bundle.json ../automation/
+          git -C ../automation add patches-bundle.json
+          git -C ../automation commit -m "Update patches bundle to $VERSION"
+          git -C ../automation push origin HEAD:automation
 
           # Older releases are not used by Morphe Manager.
           gh release list --limit 100 --json tagName --jq '.[].tagName' \
