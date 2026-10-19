@@ -17,6 +17,8 @@ concurrency:
   group: personal-build
 
 env:
+  # Without it, gh uses the upstream remote, which is the official repository.
+  GH_REPO: ${{ github.repository }}
   BRANCH: personal
   UPSTREAM: https://github.com/MorpheApp/morphe-patches.git
   KEEP_RELEASES: 3
