@@ -1,0 +1,104 @@
+name: Personal build
+
+# Builds the patches of the personal branch, which is the upstream dev branch with features
+# that are not merged yet. The patch bundle is a release, which Morphe Manager can use as a source:
+# https://github.com/glockma98/morphe-patches/releases/latest/download/patches-bundle.json
+
+on:
+  # Scheduled workflows only run from the default branch, so this branch must be the default branch.
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: personal-build
+
+env:
+  BRANCH: personal
+  UPSTREAM: https://github.com/MorpheApp/morphe-patches.git
+  KEEP_RELEASES: 3
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+
+      - name: Merge upstream dev
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM"
+          git fetch upstream dev
+          # A conflict fails the job, and the last release stays the latest.
+          git merge --no-edit upstream/dev
+          git push origin "$BRANCH"
+
+      - name: Check for a new build
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="personal-$(git rev-parse --short HEAD)"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "Already built: $tag"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base=$(sed -n 's/^version *= *//p' gradle.properties)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$base-personal.$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "build=true" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Java
+        if: steps.check.outputs.build == 'true'
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Cache Gradle
+        if: steps.check.outputs.build == 'true'
+        uses: burrunan/gradle-cache-action@v3
+
+      - name: Build Android bundle
+        if: steps.check.outputs.build == 'true'
+        env:
+          # The Morphe packages are on GitHub Packages. A token with read:packages can be set as the
+          # GPR_TOKEN secret, if the workflow token can't read them.
+          GITHUB_TOKEN: ${{ secrets.GPR_TOKEN || secrets.GITHUB_TOKEN }}
+        run: ./gradlew :patches:buildAndroid --no-daemon -Pversion="${{ steps.check.outputs.version }}"
+
+      - name: Release
+        if: steps.check.outputs.build == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.check.outputs.tag }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          mpp="patches/build/libs/patches-$VERSION.mpp"
+          jq -n \
+            --arg created_at "$(date -u +%Y-%m-%dT%H:%M:%S)" \
+            --arg description "Upstream dev $(git rev-parse --short upstream/dev) with the features of the $BRANCH branch." \
+            --arg download_url "https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/patches-$VERSION.mpp" \
+            --arg version "$VERSION" \
+            '{created_at: $created_at, description: $description, download_url: $download_url, signature_download_url: "", version: $version}' \
+            > patches-bundle.json
+          gh release create "$TAG" "$mpp" patches-bundle.json \
+            --target "$(git rev-parse HEAD)" \
+            --title "$VERSION" \
+            --notes "Upstream dev $(git rev-parse --short upstream/dev) with the features of the $BRANCH branch." \
+            --latest
+
+          # Older releases are not used by Morphe Manager.
+          gh release list --limit 100 --json tagName --jq '.[].tagName' \
+            | grep '^personal-' | tail -n +$((KEEP_RELEASES + 1)) \
+            | xargs -r -I {} gh release delete {} --yes --cleanup-tag
