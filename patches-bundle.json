@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-10-20T16:31:26",
-  "description": "Upstream dev b6a350c5a with the features of the personal branch.",
-  "download_url": "https://github.com/glockma98/morphe-patches/releases/download/personal-6766a59e1/patches-1.48.0-dev.15-personal.8.mpp",
+  "created_at": "2026-10-20T21:24:05",
+  "description": "Upstream dev a7d8f657b with the features of the personal branch.",
+  "download_url": "https://github.com/glockma98/morphe-patches/releases/download/personal-a356a9c39/patches-1.48.0-dev.15-personal.9.mpp",
   "signature_download_url": "",
-  "version": "1.48.0-dev.15-personal.8"
+  "version": "1.48.0-dev.15-personal.9"
 }
